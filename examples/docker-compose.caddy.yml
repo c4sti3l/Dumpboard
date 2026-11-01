@@ -1,0 +1,33 @@
+# Dumpboard with automatic HTTPS (Let's Encrypt) via Caddy.
+# Requirements: your domain points at this server, ports 80 and 443 are reachable.
+#
+#   1. Adjust the domain and ACCESS_TOKEN
+#   2. docker compose -f docker-compose.caddy.yml up -d
+#   3. Open https://your-domain and install the app in Chrome
+
+services:
+  dumpboard:
+    image: ghcr.io/c4sti3l/dumpboard:latest
+    restart: unless-stopped
+    environment:
+      ACCESS_TOKEN: change-me-to-a-long-password
+    volumes:
+      - dumpboard_data:/data
+    # no "ports": only reachable through Caddy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # put your domain here, e.g. dumpboard.example.com
+    command: caddy reverse-proxy --from dumpboard.example.com --to dumpboard:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - dumpboard
+
+volumes:
+  dumpboard_data:
+  caddy_data:

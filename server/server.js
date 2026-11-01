@@ -14,6 +14,18 @@ const PORT = Number(process.env.PORT) || 8080;
 const DATA = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
 const PUBLIC = path.join(__dirname, '..', 'public');
 const TOKEN = process.env.ACCESS_TOKEN || '';
+const AUTH_DISABLED = String(process.env.DISABLE_AUTH || '').toLowerCase() === 'true';
+
+// Sicher als Standard: ohne Passwort startet der Server nur, wenn das ausdrücklich erlaubt wird.
+if (!TOKEN && !AUTH_DISABLED) {
+  console.error(
+    'Kein Passwort gesetzt.\n' +
+      '  Mit Passwort:  ACCESS_TOKEN=<langes-passwort> node server/server.js\n' +
+      '  Ohne Passwort: DISABLE_AUTH=true node server/server.js  (nur in vertrauenswürdigen Netzen!)'
+  );
+  process.exit(1);
+}
+if (TOKEN && AUTH_DISABLED) console.warn('Hinweis: ACCESS_TOKEN ist gesetzt, DISABLE_AUTH wird ignoriert. Das Passwort bleibt aktiv.');
 const MAX_BYTES = (Number(process.env.MAX_UPLOAD_MB) || 500) * 1048576;
 
 const FILES = path.join(DATA, 'files');

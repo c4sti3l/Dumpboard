@@ -3,8 +3,11 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      ACCESS_TOKEN: ${ACCESS_TOKEN:?ACCESS_TOKEN in .env setzen (Passwort für die App)}
+      # Set ACCESS_TOKEN (password), or DISABLE_AUTH=true to run without a password. One of them is required.
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+      DISABLE_AUTH: ${DISABLE_AUTH:-false}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+      # PORT and DATA_DIR keep their image defaults (8080, /data); the port mapping and volume below match them.
     ports:
       - "8080:8080"   # http://localhost:8080 ist ohne HTTPS nutzbar; fürs Handy siehe Profil "https"
     volumes:

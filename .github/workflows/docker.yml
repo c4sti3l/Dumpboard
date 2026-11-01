@@ -1,0 +1,95 @@
+name: Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax check
+        run: |
+          for f in server/server.js public/*.js scripts/*.js; do node --check "$f"; done
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata (tags and labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      # Build and start the image once locally before anything gets published.
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: dumpboard:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 8080:8080 -e ACCESS_TOKEN=ci-test dumpboard:smoke
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/api/session && break
+            sleep 1
+          done
+          test "$(curl -s http://localhost:8080/api/session)" = '{"required":true,"auth":false}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/items)" = "401"
+          curl -fsS http://localhost:8080/manifest.webmanifest | grep -q '"share_target"'
+          docker rm -f smoke
+
+      - name: Smoke test (password modes)
+        run: |
+          # Without a password and without DISABLE_AUTH the container must refuse to start.
+          if docker run --rm dumpboard:smoke; then echo "expected a startup failure"; exit 1; fi
+          # With DISABLE_AUTH=true no login is required.
+          docker run -d --name open -p 8081:8080 -e DISABLE_AUTH=true dumpboard:smoke
+          for i in $(seq 1 20); do curl -fsS http://localhost:8081/api/session && break; sleep 1; done
+          test "$(curl -s http://localhost:8081/api/session)" = '{"required":false,"auth":true}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/items)" = "200"
+          docker rm -f open
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pull requests only build (for both architectures); publishing happens after the merge.
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

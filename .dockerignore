@@ -1,5 +1,7 @@
 node_modules
 scripts
+examples
+.github
 data
 data-test
 README.md

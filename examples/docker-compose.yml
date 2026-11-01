@@ -1,0 +1,29 @@
+# Dumpboard: minimal stack using the prebuilt image (no build needed).
+#
+#   1. Set ACCESS_TOKEN (use a long password!) or DISABLE_AUTH
+#   2. docker compose up -d      ->  http://localhost:8080
+#
+# Your phone needs HTTPS: see docker-compose.caddy.yml or docker-compose.traefik.yml.
+# Also works as a Portainer / Dockge / Unraid stack (just paste the content).
+
+services:
+  dumpboard:
+    image: ghcr.io/c4sti3l/dumpboard:latest
+    container_name: dumpboard
+    restart: unless-stopped
+    environment:
+      # Password: set ACCESS_TOKEN or DISABLE_AUTH (one of the two is required).
+      ACCESS_TOKEN: change-me-to-a-long-password   # sign-in password, use a long one
+      # DISABLE_AUTH: "true"                        # no password at all (trusted network only; remove ACCESS_TOKEN)
+
+      # Optional (defaults shown):
+      MAX_UPLOAD_MB: "500"                          # maximum size per file
+      # PORT: "8080"                                # port inside the container, adjust "ports" below if you change it
+      # DATA_DIR: /data                             # storage path inside the container, must match the volume below
+    ports:
+      - "8080:8080"            # host:container
+    volumes:
+      - dumpboard_data:/data   # entries, files, preview cache (or ./data:/data for direct access)
+
+volumes:
+  dumpboard_data:

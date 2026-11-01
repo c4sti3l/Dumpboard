@@ -1,0 +1,28 @@
+# Dumpboard behind an existing Traefik (v2/v3).
+# Assumes Traefik is already running with an entrypoint "websecure", a certificate
+# resolver "letsencrypt" and an external Docker network "traefik". Adjust the names otherwise.
+
+services:
+  dumpboard:
+    image: ghcr.io/c4sti3l/dumpboard:latest
+    restart: unless-stopped
+    environment:
+      ACCESS_TOKEN: change-me-to-a-long-password
+    volumes:
+      - dumpboard_data:/data
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.dumpboard.rule=Host(`dumpboard.example.com`)
+      - traefik.http.routers.dumpboard.entrypoints=websecure
+      - traefik.http.routers.dumpboard.tls.certresolver=letsencrypt
+      - traefik.http.services.dumpboard.loadbalancer.server.port=8080
+
+volumes:
+  dumpboard_data:
+
+networks:
+  traefik:
+    external: true
