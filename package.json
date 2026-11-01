@@ -1,0 +1,13 @@
+{
+  "name": "dumpboard",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Dumpboard: one big self-hosted clipboard for all your devices (PWA with Android share target)",
+  "license": "MIT",
+  "keywords": ["pwa", "share-target", "clipboard", "self-hosted", "android", "link-preview"],
+  "scripts": {
+    "start": "node server/server.js",
+    "icons": "node scripts/make-icons.js"
+  },
+  "engines": { "node": ">=14" }
+}

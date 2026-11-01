@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      ACCESS_TOKEN: ${ACCESS_TOKEN:?ACCESS_TOKEN in .env setzen (Passwort für die App)}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+    ports:
+      - "8080:8080"   # http://localhost:8080 ist ohne HTTPS nutzbar; fürs Handy siehe Profil "https"
+    volumes:
+      - dumpboard_data:/data
+
+  # Optional: automatisches HTTPS (Let's Encrypt) für eine echte Domain.
+  #   docker compose --profile https up -d      (DOMAIN in .env setzen)
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${DOMAIN:?DOMAIN in .env setzen} --to app:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - app
+
+volumes:
+  dumpboard_data:
+  caddy_data:

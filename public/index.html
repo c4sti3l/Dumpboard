@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Dumpboard</title>
+  <meta name="description" content="Sammelt alles, was du über das Teilen-Menü an die App sendest." />
+  <meta name="theme-color" content="#0b0d14" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3v9m0 0-3.5-3.5M12 12l3.5-3.5M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+        </span>
+        <div>
+          <h1>Dumpboard</h1>
+          <p id="count" class="muted">0 Einträge</p>
+        </div>
+      </div>
+      <button id="clearAll" class="icon-btn danger" title="Alle löschen" aria-label="Alle löschen" hidden>
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+      </button>
+    </div>
+    <label class="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Suchen in Titel, Text, Links, Dateien …" autocomplete="off" enterkeyhint="search" />
+      <button id="qClear" type="button" aria-label="Suche leeren" hidden>×</button>
+    </label>
+    <div class="chips" id="filters" role="tablist">
+      <button class="chip active" data-f="all">Alle</button>
+      <button class="chip" data-f="link">Links</button>
+      <button class="chip" data-f="text">Text</button>
+      <button class="chip" data-f="image">Bilder</button>
+      <button class="chip" data-f="file">Dateien</button>
+    </div>
+  </header>
+
+  <main>
+    <ul id="list" class="list"></ul>
+    <div id="empty" class="empty" hidden></div>
+  </main>
+
+  <div id="dropzone" class="dropzone" hidden>
+    <div><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>Dateien hier ablegen</div>
+  </div>
+
+  <footer class="composer-wrap">
+    <div id="linkPrev" class="lp-wrap" hidden></div>
+    <div id="staged" class="staged" hidden></div>
+    <form id="composer" class="composer">
+      <button type="button" id="attach" class="icon-btn" title="Datei anhängen" aria-label="Datei anhängen">
+        <svg viewBox="0 0 24 24"><path d="m20 11-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7"/></svg>
+      </button>
+      <input id="filePick" type="file" multiple hidden />
+      <textarea id="msg" rows="1" placeholder="Nachricht, Link einfügen oder Datei ablegen …" enterkeyhint="send"></textarea>
+      <button type="submit" id="send" class="send" title="Speichern" aria-label="Speichern" disabled>
+        <svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-6-6m6 6-6 6"/></svg>
+      </button>
+    </form>
+  </footer>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <h2 id="confirmTitle">Löschen?</h2>
+      <p id="confirmText" class="muted"></p>
+      <div class="dlg-actions">
+        <button value="cancel" class="btn">Abbrechen</button>
+        <button value="ok" id="confirmOk" class="btn danger-fill">Löschen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="login">
+    <form id="loginForm">
+      <h2>Anmelden</h2>
+      <p class="muted">Gib das Passwort für dein Dumpboard ein.</p>
+      <input id="loginPw" class="field" type="password" placeholder="Passwort" autocomplete="current-password" required />
+      <p id="loginErr" class="err" hidden>Falsches Passwort.</p>
+      <div class="dlg-actions"><button class="btn primary" type="submit">Anmelden</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="lightbox" class="lightbox">
+    <form method="dialog"><button class="lb-close" aria-label="Schließen">×</button></form>
+    <img alt="" />
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/db.js"></script>
+  <script src="/api.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
