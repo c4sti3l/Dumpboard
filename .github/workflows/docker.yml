@@ -66,13 +66,20 @@ jobs:
       - name: Smoke test (password modes)
         run: |
           # Without a password and without DISABLE_AUTH the container must refuse to start.
-          if docker run --rm dumpboard:smoke; then echo "expected a startup failure"; exit 1; fi
+          if out=$(docker run --rm dumpboard:smoke 2>&1); then echo "expected a startup failure"; exit 1; fi
+          echo "$out" | grep -q "Kein Passwort gesetzt"
           # With DISABLE_AUTH=true no login is required.
           docker run -d --name open -p 8081:8080 -e DISABLE_AUTH=true dumpboard:smoke
           for i in $(seq 1 20); do curl -fsS http://localhost:8081/api/session && break; sleep 1; done
           test "$(curl -s http://localhost:8081/api/session)" = '{"required":false,"auth":true}'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/items)" = "200"
           docker rm -f open
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: |
+          docker logs smoke || true
+          docker logs open || true
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'

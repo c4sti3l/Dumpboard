@@ -72,7 +72,7 @@ volumes:
   dumpboard_data:
 ```
 
-Open <http://localhost:8080> and sign in. Data lives in the volume `dumpboard_data` and survives updates. Update with `docker compose pull && docker compose up -d`.
+Open <http://localhost:8080> and sign in. Data lives in the volume `dumpboard_data` and survives updates. The container runs as the unprivileged user `node` (uid 1000); if you use a bind mount like `./data:/data` instead of a named volume, make that folder writable for it: `sudo chown -R 1000:1000 ./data`. Update with `docker compose pull && docker compose up -d`.
 
 #### Example stacks with HTTPS
 
