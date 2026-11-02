@@ -20,6 +20,7 @@ const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name
 
 let items = [];
 let filter = 'all';
+let epoch = 0; // zählt bei jedem Sperren hoch; verspätete Antworten aus der Zeit davor werden verworfen
 let objectUrls = [];
 
 /* ---------- Link-Vorschau (vom Server geholt und gecacht) ---------- */
@@ -32,6 +33,7 @@ function getPreview(url) {
   if (previewData.has(url)) return Promise.resolve(previewData.get(url));
   if (Date.now() - (previewFail.get(url) || 0) < 60000) return Promise.resolve(null);
   if (!previewReq.has(url)) {
+    const gen = epoch;
     previewReq.set(
       url,
       fetch('/api/preview?url=' + encodeURIComponent(url))
@@ -39,6 +41,7 @@ function getPreview(url) {
         .catch(() => null)
         .then((d) => {
           previewReq.delete(url);
+          if (gen !== epoch) return null;
           if (d) previewData.set(url, d);
           else previewFail.set(url, Date.now());
           return d;
@@ -414,6 +417,7 @@ async function shareItem(item) {
 }
 
 function render() {
+  if (!unlocked) return renderSkeleton(); // nie Inhalte zeigen, solange der Server die Anmeldung nicht bestätigt hat
   objectUrls.forEach((u) => URL.revokeObjectURL(u));
   objectUrls = [];
   listEl.replaceChildren();
@@ -441,30 +445,106 @@ function render() {
 }
 
 let offline = false;
-const CACHE_KEY = 'dumpboard:list';
+let unlocked = false; // true erst, wenn der Server die Liste ausgeliefert hat
+let authRequired = null; // null = noch unbekannt
+let remoteItems = []; // nur im Speicher, überbrückt kurze Offline-Phasen innerhalb derselben Sitzung
+
+// Platzhalter vor der Anmeldung: sieht immer gleich aus und verrät nichts über die Inhalte.
+function renderSkeleton() {
+  listEl.replaceChildren();
+  for (let i = 0; i < 4; i++) {
+    const li = el(
+      'li',
+      'card skeleton',
+      '<div class="sk sk-chip"></div><div class="sk sk-line"></div><div class="sk sk-line short"></div>' + (i % 2 ? '<div class="sk sk-block"></div>' : '')
+    );
+    li.setAttribute('aria-hidden', 'true');
+    listEl.append(li);
+  }
+  emptyEl.hidden = true;
+  $('#count').textContent = 'Gesperrt';
+  $('#clearAll').hidden = true;
+  $('#qClear').hidden = true;
+}
+
+// Entfernt alle Inhalte aus Seite und Speicher. Nur die Warteschlange noch nicht hochgeladener Einträge
+// bleibt in IndexedDB, sie wird erst nach der Anmeldung wieder angezeigt.
+function wipe() {
+  epoch++;
+  unlocked = false;
+  items = [];
+  remoteItems = [];
+  previewData.clear();
+  previewReq.clear();
+  previewFail.clear();
+  objectUrls.forEach((u) => URL.revokeObjectURL(u));
+  objectUrls = [];
+  staged = [];
+  renderStaged();
+  msgEl.value = '';
+  autogrow();
+  closePreview();
+  dismissed.clear();
+  qEl.value = '';
+  for (const id of ['#lightbox', '#confirm']) if ($(id).open) $(id).close();
+  $('#lightbox img').removeAttribute('src');
+  if (events) {
+    events.close();
+    events = null;
+  }
+  $('#lock').hidden = true;
+  document.body.classList.add('locked');
+  renderSkeleton();
+}
+
+async function lock() {
+  let ok = false;
+  try {
+    ok = (await fetch('/api/logout', { method: 'POST' })).ok;
+  } catch {}
+  wipe();
+  showLogin();
+  if (!ok) toast('Offline: Die Sitzung am Server bleibt aktiv');
+}
 
 async function load() {
-  let remote = [];
+  const gen = epoch;
+  let remote;
   try {
     remote = await API.list();
     offline = false;
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(remote));
-    } catch {}
   } catch (e) {
-    if (e.auth) showLogin();
-    else {
-      // Kein Netz: zuletzt gesehene Liste anzeigen (Dateien sind dann nicht abrufbar).
-      offline = true;
-      try {
-        remote = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
-      } catch {}
+    if (gen !== epoch) return;
+    if (e.auth) {
+      wipe();
+      showLogin();
+      return;
     }
+    offline = true;
+    if (!unlocked) {
+      // Frischer Start ohne Server: lokal wird absichtlich nichts zwischengespeichert, also gibt es nichts zu zeigen.
+      renderSkeleton();
+      $('#count').textContent = 'Server nicht erreichbar';
+      return;
+    }
+    remote = remoteItems;
+  }
+  if (gen !== epoch) return;
+  remoteItems = remote;
+  if (authRequired === null) {
+    try {
+      authRequired = (await API.session()).required;
+    } catch {}
   }
   const pending = (await DB.all()).map((it) => ({ ...it, id: 'p' + it.id, _dbId: it.id, _pending: true }));
+  if (gen !== epoch) return;
+  unlocked = true;
+  document.body.classList.remove('locked');
+  $('#lock').hidden = !authRequired;
   items = [...remote, ...pending].sort((a, b) => b.createdAt - a.createdAt);
   items.forEach((it) => (it._a = analyse(it)));
   render();
+  connectEvents();
   prefetchPreviews();
 }
 
@@ -519,9 +599,12 @@ async function flushOutbox() {
 /* ---------- Anmeldung & Live-Updates ---------- */
 
 function showLogin() {
+  document.body.classList.add('locked');
   const d = $('#login');
   if (!d.open) d.showModal();
 }
+// Der Anmeldedialog lässt sich nicht mit Esc wegdrücken.
+$('#login').addEventListener('cancel', (e) => e.preventDefault());
 
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -538,21 +621,22 @@ $('#loginForm').addEventListener('submit', async (e) => {
   }
   input.value = '';
   $('#login').close();
-  connectEvents();
+  authRequired = true;
+  epoch++; // Anfragen, die vor dem Login gestartet wurden und mit 401 zurückkommen, dürfen nicht erneut sperren
   await load();
   flushOutbox();
 });
 
 let events;
 function connectEvents() {
-  if (events || !('EventSource' in window)) return;
+  if (events || !unlocked || !('EventSource' in window)) return;
   events = new EventSource('/api/events');
   events.onmessage = load;
   events.onerror = () => {
-    // Bei 401 gibt der Browser auf; nach erneutem Login verbinden wir neu.
-    if (events.readyState === EventSource.CLOSED) {
+    // Bei 401 gibt der Browser auf; nach erneutem Login verbinden wir neu (load() ruft das auf).
+    if (events && events.readyState === EventSource.CLOSED) {
       events = null;
-      setTimeout(connectEvents, 5000);
+      if (unlocked) setTimeout(connectEvents, 5000);
     }
   };
 }
@@ -598,6 +682,7 @@ $('#clearAll').addEventListener('click', () =>
     load();
   })
 );
+$('#lock').addEventListener('click', lock);
 $('#lightbox').addEventListener('click', (e) => {
   if (e.target.tagName !== 'IMG') e.currentTarget.close();
 });
@@ -853,7 +938,12 @@ if (params.has('shared')) {
   toast(SHARE_MESSAGES[params.get('shared')] || SHARE_MESSAGES.error);
   history.replaceState(null, '', '/');
 }
-connectEvents();
+// Bis der Server die Anmeldung bestätigt hat, gibt es nur Platzhalter. Alte Listen-Zwischenspeicher früherer Versionen löschen.
+try {
+  localStorage.removeItem('dumpboard:list');
+} catch {}
+document.body.classList.add('locked');
+renderSkeleton();
 load().then(flushOutbox);
 window.addEventListener('online', () => {
   load();

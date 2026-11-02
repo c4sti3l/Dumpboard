@@ -211,6 +211,22 @@ main { padding-bottom: 150px; }
 }
 .dropzone svg { width: 44px; height: 44px; color: var(--accent); }
 
+/* Sperren und Platzhalter */
+.top-actions { display: flex; gap: 8px; }
+.card.skeleton { animation: none; pointer-events: none; }
+.card.skeleton::before { opacity: 0.25; background: var(--muted); }
+.sk {
+  border-radius: 10px; height: 14px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, color-mix(in srgb, var(--surface-2) 40%, var(--text) 8%) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%; animation: shimmer 1.4s linear infinite;
+}
+.sk-chip { width: 64px; height: 22px; border-radius: 999px; }
+.sk-line { width: 92%; }
+.sk-line.short { width: 58%; }
+.sk-block { height: 150px; border-radius: 14px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+body.locked .composer-wrap, body.locked .search, body.locked .chips { opacity: 0.45; pointer-events: none; }
+
 /* Reiche Link-Karten */
 .linkcard.rich { display: block; padding: 0; overflow: hidden; transition: transform 0.15s, border-color 0.2s; }
 .linkcard.rich:hover { border-color: color-mix(in srgb, var(--b-link) 45%, var(--border)); }

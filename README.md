@@ -20,7 +20,7 @@ Share a link, a text, a photo or any file from your Android phone straight into 
 - **Android quirk handled**: Android often puts the shared URL into `text` (sometimes `title`) and leaves `url` empty. Dumpboard extracts URLs with a regex and treats them as links.
 - **Previews for everything**: image thumbnails with lightbox, inline video and audio players, colored file-type icons, PDF open button.
 - **Modern UI**: mobile-first, dark mode, installable and works offline (app shell is precached).
-- **Simple and private**: one shared password, files stored on your disk, zero npm dependencies.
+- **Simple and private**: one shared password, a **Lock** button, files stored on your disk, zero npm dependencies. While locked (and before sign-in) the page shows only skeleton placeholders; no content is loaded or cached locally.
 
 The user interface is currently in German.
 
@@ -127,6 +127,8 @@ Use `DISABLE_AUTH=true` only where everyone who can reach the server is trusted,
 
 With a password, sign-ins are valid for **7 days**, then the password is requested again. Changing `ACCESS_TOKEN` signs out all devices.
 
+**Lock button:** the padlock in the header locks the app immediately and returns to the password prompt. It revokes the session on the server (a copied cookie stops working), clears everything from the page and memory, and shows only placeholder skeletons until you sign in again. Before sign-in no entries, images or previews are loaded at all, so there is nothing to uncover with browser dev tools.
+
 ## HTTPS and installing on Android
 
 Chrome only installs PWAs and runs service workers over **HTTPS** (except on `localhost`). Pick one:
@@ -227,6 +229,8 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json
 
 - **Always set `ACCESS_TOKEN`** before exposing the server to the internet, and serve it over HTTPS. With `DISABLE_AUTH=true` anyone who can reach the server can read, upload and delete everything, and the server can be made to fetch URLs for link previews. The session cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` behind HTTPS. Failed logins are delayed but not locked out, so use a long password.
 - It is a single-password, single-user design. There are no accounts.
+- Entries, files and link previews are only delivered to signed-in sessions. The browser may not reuse cached copies without asking the server first (`Cache-Control: no-cache` plus `ETag`, which needs a valid session), and the app keeps no local copy of the list. Entries that could not be uploaded yet (offline queue) stay on the device in IndexedDB until they are sent, but they are only shown after sign-in.
+- On a fresh start without a reachable server the app cannot verify your session and shows skeletons only (there is no offline reading of existing entries; sharing into the queue still works).
 - Files are stored **unencrypted** on the server's disk.
 - Uploaded files are only served inline when they are images, video, audio or PDF; everything else (including HTML) is sent as a download with `nosniff` and a sandboxing CSP, so uploads cannot run code in the app's origin.
 - Link previews make the server request third-party URLs. Private and internal addresses (localhost, RFC 1918 ranges, link-local and cloud metadata addresses, IPv6 equivalents) are blocked, including after redirects and DNS resolution. Preview images are only delivered if they really are raster images (no SVG).

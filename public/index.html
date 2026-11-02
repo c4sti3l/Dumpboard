@@ -23,9 +23,14 @@
           <p id="count" class="muted">0 Einträge</p>
         </div>
       </div>
-      <button id="clearAll" class="icon-btn danger" title="Alle löschen" aria-label="Alle löschen" hidden>
-        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
-      </button>
+      <div class="top-actions">
+        <button id="lock" class="icon-btn" title="Sperren" aria-label="Sperren" hidden>
+          <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        </button>
+        <button id="clearAll" class="icon-btn danger" title="Alle löschen" aria-label="Alle löschen" hidden>
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+        </button>
+      </div>
     </div>
     <label class="search">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>

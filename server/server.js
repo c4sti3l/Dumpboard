@@ -84,19 +84,42 @@ const hash = (s) => crypto.createHash('sha256').update('dumpboard:' + s).digest(
 const TOKEN_HASH = hash(TOKEN);
 const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(a, b);
 
-// Anmeldung gilt eine Woche ab Login (kein Verlängern) und läuft serverseitig ab: Das Cookie
-// enthält das Ablaufdatum, signiert mit einem vom Passwort abgeleiteten Schlüssel.
-// Wer das Passwort ändert, meldet damit alle Geräte ab.
+// Anmeldung gilt eine Woche ab Login (kein Verlängern) und läuft serverseitig ab. Das Cookie
+// enthält Ablaufdatum und eine zufällige Sitzungs-ID, signiert mit einem vom Passwort abgeleiteten
+// Schlüssel. Wer das Passwort ändert, meldet damit alle Geräte ab. "Sperren" widerruft die
+// Sitzungs-ID, ein kopiertes Cookie ist danach wertlos.
 const SESSION_MS = 7 * 24 * 3600 * 1000;
-const sign = (exp) => crypto.createHmac('sha256', TOKEN_HASH).update(String(exp)).digest();
+const sign = (payload) => crypto.createHmac('sha256', TOKEN_HASH).update(payload).digest();
+const COOKIE_RE = /(?:^|;\s*)dumpboard_auth=(\d{1,15})\.([a-f0-9]{16})\.([a-f0-9]{64})/;
+
+const REVOKED_FILE = path.join(DATA, 'revoked.json');
+let revoked = {};
+try {
+  revoked = JSON.parse(fs.readFileSync(REVOKED_FILE, 'utf8'));
+} catch {}
+const saveRevoked = () => {
+  const now = Date.now();
+  for (const sid of Object.keys(revoked)) if (revoked[sid] < now) delete revoked[sid];
+  fs.promises.writeFile(REVOKED_FILE, JSON.stringify(revoked)).catch(() => {});
+};
+
+function sessionOf(req) {
+  const m = COOKIE_RE.exec(req.headers.cookie || '');
+  if (!m) return null;
+  const [, exp, sid, sig] = m;
+  if (Number(exp) <= Date.now() || revoked[sid] || !same(Buffer.from(sig, 'hex'), sign(`${exp}.${sid}`))) return null;
+  return { sid, exp: Number(exp) };
+}
 
 function authed(req) {
   if (!TOKEN) return true;
-  const cookie = /(?:^|;\s*)dumpboard_auth=(\d{1,15})\.([a-f0-9]{64})/.exec(req.headers.cookie || '');
-  if (cookie && Number(cookie[1]) > Date.now() && same(Buffer.from(cookie[2], 'hex'), sign(cookie[1]))) return true;
+  if (sessionOf(req)) return true;
   const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || '');
   return !!bearer && same(hash(bearer[1]), TOKEN_HASH);
 }
+
+const cookieFlags = (req) =>
+  `Path=/; HttpOnly; SameSite=Strict${req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
 
 /* ---------- Hilfsfunktionen ---------- */
 
@@ -149,11 +172,21 @@ async function api(req, res, url, p) {
       await new Promise((r) => setTimeout(r, 600)); // bremst Durchprobieren
       return send(res, 401, { error: 'Falsches Passwort' });
     }
-    const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
     const exp = Date.now() + SESSION_MS;
+    const sid = crypto.randomBytes(8).toString('hex');
     return send(res, 200, { ok: true }, {
-      'Set-Cookie': `dumpboard_auth=${exp}.${sign(exp).toString('hex')}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`,
+      'Set-Cookie': `dumpboard_auth=${exp}.${sid}.${sign(`${exp}.${sid}`).toString('hex')}; ${cookieFlags(req)}; Max-Age=${SESSION_MS / 1000}`,
     });
+  }
+
+  // Sperren: Sitzung auf dem Server widerrufen und Cookie löschen (SameSite=Strict schützt vor fremden Aufrufen).
+  if (p === '/api/logout' && method === 'POST') {
+    const s = sessionOf(req);
+    if (s) {
+      revoked[s.sid] = s.exp;
+      saveRevoked();
+    }
+    return send(res, 200, { ok: true }, { 'Set-Cookie': `dumpboard_auth=; ${cookieFlags(req)}; Max-Age=0` });
   }
 
   if (!authed(req)) return send(res, 401, { error: 'Nicht angemeldet' });
@@ -220,7 +253,7 @@ async function api(req, res, url, p) {
   if (m && (method === 'GET' || method === 'HEAD')) return getFile(req, res, m[1], url.searchParams.has('download'));
 
   if (p === '/api/preview' && method === 'GET') return previewRoute(res, url);
-  if (p === '/api/proxy' && method === 'GET') return proxyRoute(res, url);
+  if (p === '/api/proxy' && method === 'GET') return proxyRoute(req, res, url);
 
   send(res, 404, { error: 'Unbekannter Endpunkt' });
 }
@@ -426,7 +459,8 @@ function getPreview(url) {
 async function previewRoute(res, url) {
   const target = url.searchParams.get('url') || '';
   if (target.length > 2000 || !/^https?:\/\//i.test(target)) return send(res, 400, { error: 'Ungültige URL' });
-  send(res, 200, await getPreview(target), { 'Cache-Control': 'private, max-age=600' });
+  // Kein Browser-Cache: Vorschau-Daten dürfen ohne gültige Anmeldung nicht abrufbar sein.
+  send(res, 200, await getPreview(target));
 }
 
 // Erkennt Bildformate am Inhalt statt am Header, SVG wird absichtlich nicht ausgeliefert.
@@ -441,9 +475,36 @@ function sniffImage(b) {
   return null;
 }
 
-async function proxyRoute(res, url) {
+// Vorschaubilder im Arbeitsspeicher halten. Der Browser fragt jedes Mal per ETag nach (Cache-Control: no-cache),
+// das geht nur mit gültiger Anmeldung und kostet keinen erneuten Abruf bei der Quelle.
+const proxyCache = new Map();
+let proxyBytes = 0;
+const PROXY_MAX_BYTES = 40 * 1048576;
+
+function sendProxied(req, res, hit) {
+  const headers = { ETag: hit.etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff' };
+  if (req.headers['if-none-match'] === hit.etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  res.writeHead(200, {
+    ...headers,
+    'Content-Type': hit.type,
+    'Content-Length': hit.buffer.length,
+    'Content-Security-Policy': "sandbox; default-src 'none'",
+  });
+  res.end(hit.buffer);
+}
+
+async function proxyRoute(req, res, url) {
   const target = url.searchParams.get('u') || '';
   if (target.length > 2000) return send(res, 400, { error: 'Ungültige URL' });
+  let hit = proxyCache.get(target);
+  if (hit) {
+    proxyCache.delete(target); // als zuletzt benutzt markieren
+    proxyCache.set(target, hit);
+    return sendProxied(req, res, hit);
+  }
   let r;
   try {
     r = await fetchUrl(target, { maxBytes: 4 * 1048576, accept: 'image/*,*/*;q=0.5' });
@@ -452,14 +513,15 @@ async function proxyRoute(res, url) {
   }
   const type = sniffImage(r.buffer);
   if (!type) return send(res, 415, { error: 'Kein unterstütztes Bild' });
-  res.writeHead(200, {
-    'Content-Type': type,
-    'Content-Length': r.buffer.length,
-    'Cache-Control': 'private, max-age=604800',
-    'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "sandbox; default-src 'none'",
-  });
-  res.end(r.buffer);
+  hit = { buffer: r.buffer, type, etag: '"' + crypto.createHash('sha1').update(r.buffer).digest('hex').slice(0, 20) + '"' };
+  proxyCache.set(target, hit);
+  proxyBytes += hit.buffer.length;
+  while (proxyBytes > PROXY_MAX_BYTES && proxyCache.size > 1) {
+    const oldest = proxyCache.keys().next().value;
+    proxyBytes -= proxyCache.get(oldest).buffer.length;
+    proxyCache.delete(oldest);
+  }
+  sendProxied(req, res, hit);
 }
 
 async function putFile(req, res, id) {
@@ -500,9 +562,16 @@ function getFile(req, res, id, asDownload) {
     'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'",
-    'Cache-Control': 'private, max-age=31536000, immutable',
+    // Die Datei ändert sich nie (ID = Inhalt), trotzdem muss der Browser bei jeder Nutzung per ETag nachfragen.
+    // Das geht nur mit gültiger Anmeldung, im Cache liegende Dateien sind nach dem Sperren also nicht abrufbar.
+    'Cache-Control': 'private, no-cache',
+    ETag: `"${id}"`,
     'Accept-Ranges': 'bytes',
   };
+  if (req.headers['if-none-match'] === headers.ETag && !req.headers.range) {
+    res.writeHead(304, { ETag: headers.ETag, 'Cache-Control': headers['Cache-Control'] });
+    return res.end();
+  }
 
   let start = 0;
   let end = size - 1;
