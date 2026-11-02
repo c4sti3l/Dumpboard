@@ -794,7 +794,8 @@ $('#filePick').addEventListener('change', (e) => {
 
 // Strg+V: Bilder/Dateien aus der Zwischenablage landen in der Eingabeleiste.
 document.addEventListener('paste', (e) => {
-  if (e.target.id === 'q') return;
+  // In anderen Eingabefeldern (Suche, Passwort) und Dialogen normal einfügen lassen.
+  if (e.target !== msgEl && e.target.closest('input, textarea, dialog, [contenteditable]')) return;
   const files = [...(e.clipboardData?.files || [])];
   if (files.length) {
     e.preventDefault();

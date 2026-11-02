@@ -1,6 +1,6 @@
 importScripts('/db.js', '/api.js');
 
-const CACHE = 'dumpboard-v1';
+const CACHE = 'dumpboard-v2';
 const SHELL = [
   '/',
   '/index.html',
